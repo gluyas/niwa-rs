@@ -1,9 +1,11 @@
+mod util;
+use util::*;
+
 mod world;
-
-use std::io::{self, Read};
-use std::error::Error;
-
 use world::*;
+
+use std::io;
+use std::error::Error;
 
 fn main() {
     let room = {
@@ -11,13 +13,13 @@ fn main() {
             tiles: Grid::default((4, 4)),
         };
 
-        for x in 0..room.size().0  {
-            for y in 0..room.size().1 {
+        for x in 0..room.size().x  {
+            for y in 0..room.size().y {
                 room.tiles[(x, y)] = Option::Some(
                     Tile {
                         material: Material::Grass,
                         prop: None,
-                        height: 0,
+                        elevation: 0,
                     }
                 );
             }
@@ -28,23 +30,22 @@ fn main() {
         room
     };
 
-    let mut player = (1, 1);
+    let mut player = Pos::default();
 
     let mut move_player = |dir| {
         {
-            let old_pos = player;
-            nudge_bounded(&mut player, dir, &room.tiles.size());
+            let new_pos = player.nudge(dir, room.size());
 
-            if room.tiles[(player.0, player.1)].is_none()
-            || room.tiles[(player.0, player.1)].as_ref().unwrap().prop.is_some()
+            if room.tiles[new_pos].is_some()
+            && room.tiles[new_pos].as_ref().unwrap().prop.is_none()
             {
-                player = old_pos
+                player = new_pos;
             }
         }
 
-        for y in 0..room.size().0 {
-            for x in 0..room.size().1 {
-                if (x, y) == player {
+        for y in 0..room.size().x {
+            for x in 0..room.size().y {
+                if player == (x, y) {
                     print!("!");
                 } else if room.tiles[(x, y)].is_some() {
                     if room.tiles[(x, y)].as_ref().unwrap().prop.is_some() {
@@ -83,22 +84,5 @@ fn main() {
                 break;
             },
         }
-    }
-}
-
-fn nudge_bounded(pos: &mut (usize, usize), dir: Direction, bounds: &(usize, usize)) {
-    fn sub_bounded(val: &mut usize) {
-        if *val > 0 { *val -= 1 };
-    }
-
-    fn add_bounded(val: &mut usize, bound: &usize) {
-        if *val < bound - 1 { *val += 1 };
-    }
-
-    match dir {
-        Direction::North => sub_bounded(&mut pos.1),
-        Direction::East  => add_bounded(&mut pos.0, &bounds.0),
-        Direction::South => add_bounded(&mut pos.1, &bounds.1),
-        Direction::West  => sub_bounded(&mut pos.0),
     }
 }
