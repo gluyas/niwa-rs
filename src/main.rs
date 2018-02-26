@@ -14,7 +14,7 @@ fn main() {
     let room = make_room();
     let mut puzzle = make_puzzle();
 
-    let mut player = Pos::default();
+    let mut player = GridIndex::default();
 
     let mut input = String::new();
     let stdin = io::stdin();
@@ -59,7 +59,7 @@ fn main() {
     }
 }
 
-fn move_player(dir: Direction, player: &mut Pos, room: &Room, puzzle: &PuzzleGrid) {
+fn move_player(dir: Direction, player: &mut GridIndex, room: &Room, puzzle: &PuzzleGrid) {
     if let Some(new_pos) = player.step(dir, room.size()) {
         if room.tiles[new_pos].is_some()
         && room.tiles[new_pos].as_ref().unwrap().prop.is_none()
@@ -73,7 +73,7 @@ fn move_player(dir: Direction, player: &mut Pos, room: &Room, puzzle: &PuzzleGri
     render(*player, room, puzzle);
 }
 
-fn cast_spell(dir: Direction, player: &Pos, room: &Room, puzzle: &mut PuzzleGrid) {
+fn cast_spell(dir: Direction, player: &GridIndex, room: &Room, puzzle: &mut PuzzleGrid) {
     let mut puzzle_temp = puzzle.clone();
 
     for pos in player.iter_line(dir, room.size()) {
@@ -116,7 +116,7 @@ fn cast_spell(dir: Direction, player: &Pos, room: &Room, puzzle: &mut PuzzleGrid
     render(*player, room, puzzle);
 }
 
-fn render(player: Pos, room: &Room, puzzle: &PuzzleGrid) {
+fn render(player: GridIndex, room: &Room, puzzle: &PuzzleGrid) {
     for y in 0..room.size().x {
         for x in 0..room.size().y {
             if player == (x, y) {

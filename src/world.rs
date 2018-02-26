@@ -1,11 +1,11 @@
-use util::{Grid, Pos};
+use util::{Grid, GridIndex};
 
 pub struct Room {
     pub tiles: Grid<Option<Tile>>,
 }
 
 impl Room {
-    pub fn size(&self) -> Pos {
+    pub fn size(&self) -> GridIndex {
         self.tiles.size()
     }
 }

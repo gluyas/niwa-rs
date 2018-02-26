@@ -9,7 +9,7 @@ pub struct PuzzleGrid {
 }
 
 impl PuzzleGrid {
-    pub fn is_blocked <P: Into<Pos>> (&self, pos: P, dir: Direction) -> Option<PuzzleId> {
+    pub fn is_blocked <P: Into<GridIndex>> (&self, pos: P, dir: Direction) -> Option<PuzzleId> {
         self.cells[pos].as_ref().and_then(|cell| {
             if cell.has_wall(dir) {
                 Some(cell.region)
@@ -19,7 +19,7 @@ impl PuzzleGrid {
         })
     }
 
-    pub fn set_cell <P: Into<Pos>> (&mut self, pos: P, mut new_cell: Option<PuzzleCell>) {
+    pub fn set_cell <P: Into<GridIndex>> (&mut self, pos: P, mut new_cell: Option<PuzzleCell>) {
         let pos = pos.into();
 
         // naively expand regions vector
