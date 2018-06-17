@@ -31,8 +31,10 @@ fn main() {
     gl::load_with(|addr| gl_window.get_proc_address(addr) as *const _);
 
     unsafe {    // draw background
-        let vert = compile_shader(File::open("src/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
-        let frag = compile_shader(File::open("src/background.frag").unwrap(), gl::FRAGMENT_SHADER);
+        let vert = compile_shader(
+            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
+        let frag = compile_shader(
+            File::open("src/shader/background.frag").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag, 0]);
         gl::UseProgram(program);
@@ -84,8 +86,10 @@ fn main() {
     }
 
     unsafe {    // draw textured quad
-        let vert = compile_shader(File::open("src/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
-        let frag = compile_shader(File::open("src/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
+        let vert = compile_shader(
+            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
+        let frag = compile_shader(
+            File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag, 0]);
         gl::UseProgram(program);
