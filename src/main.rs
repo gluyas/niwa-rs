@@ -61,12 +61,10 @@ fn main() {
         {
             let bg_quad: [GLfloat; 8] = [1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0];
 
-            let mut vao: GLuint = Default::default();
-            gl::GenVertexArrays(1, &mut vao);
+            let vao = gen_object(gl::GenVertexArrays);
             gl::BindVertexArray(vao);
 
-            let mut vbo: GLuint = Default::default();
-            gl::GenBuffers(1, &mut vbo);
+            let vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
@@ -104,8 +102,7 @@ fn main() {
             let sprite: Vec<u8> = sprite.into_raw();
 
             // bind and upload texture
-            let mut texture = GLuint::default();
-            gl::GenTextures(1, &mut texture);
+            let texture = gen_object(gl::GenTextures);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, texture);
 
@@ -128,20 +125,26 @@ fn main() {
 
         {
             let sprite_quad: [GLfloat; 16] = [
-            //   x     y       u     v
-                 0.5,  0.5,    1.0,  0.0,
-                 0.5, -0.5,    1.0,  1.0,
-                -0.5, -0.5,    0.0,  1.0,
-                -0.5,  0.5,    0.0,  0.0,
+            //   x      y       u     v
+                 0.25,  0.25,    1.0,  0.0,
+                 0.25, -0.25,    1.0,  1.0,
+                -0.25, -0.25,    0.0,  1.0,
+                -0.25,  0.25,    0.0,  0.0,
             ];
 
-            let mut vao = GLuint::default();
-            gl::GenVertexArrays(1, &mut vao);
+            let sprite_offsets: [GLfloat; 10] = [
+               -0.5,   0.5,
+                0.5,   0.5,
+                0.0,   0.0,
+               -0.5,  -0.5,
+                0.5,  -0.5,
+            ];
+
+            let vao = gen_object(gl::GenVertexArrays);
             gl::BindVertexArray(vao);
 
-            let mut vbo = GLuint::default();
-            gl::GenBuffers(1, &mut vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            let quad_vbo = gen_object(gl::GenBuffers);
+            gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 (size_of::<GLfloat>() * sprite_quad.len()) as GLsizeiptr,
@@ -156,7 +159,7 @@ fn main() {
                 gl::VertexAttribPointer(
                     position, 2, gl::FLOAT, gl::FALSE,
                     4 * size_of::<GLfloat>() as GLsizei,
-                    ptr::null(),
+                    ptr::null() as *const GLvoid,
                 );
             }
 
@@ -170,11 +173,32 @@ fn main() {
                     ptr::null::<GLfloat>().offset(2) as *const GLvoid,
                 );
             }
+
+            let offset_vbo = gen_object(gl::GenBuffers);
+            gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                (size_of::<GLfloat>() * sprite_offsets.len()) as GLsizeiptr,
+                sprite_offsets.as_ptr() as *const GLvoid,
+                gl::STATIC_DRAW
+            );
+
+            {
+                let name = CString::new("offset").unwrap();
+                let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                gl::EnableVertexAttribArray(offset);
+                gl::VertexAttribPointer(
+                    offset, 2, gl::FLOAT, gl::FALSE,
+                    0 as GLsizei,
+                    ptr::null() as *const GLvoid,
+                );
+                gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
+            }
         }
         // render using blend for smooth edges
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
+        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, 5);
         gl::Disable(gl::BLEND);
     }
 
@@ -192,6 +216,13 @@ fn main() {
             _ => (),
         });
     }
+}
+
+#[inline]
+unsafe fn gen_object(gl_gen_callback: unsafe fn (GLsizei, *mut GLuint)) -> GLuint {
+    let mut name = GLuint::default();
+    gl_gen_callback(1, &mut name);
+    name
 }
 
 fn compile_shader(file: File, ty: GLenum) -> GLuint {
