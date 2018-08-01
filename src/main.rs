@@ -15,6 +15,12 @@ use std::ffi::CString;
 use glutin::GlContext;
 use gl::types::*;
 
+static MAP: [u8; 9] = [
+    0,      1,      1,
+    0,      1,      1,
+    1,      1,      0,
+];
+
 fn main() {
     // set up gl context/window
     let mut events_loop = glutin::EventsLoop::new();
@@ -123,7 +129,7 @@ fn main() {
             gl::Uniform1i(uniform, 0);
         }
 
-        {
+        let num_tiles = {
             let sprite_quad: [GLfloat; 16] = [
             //   x      y       u     v
                  0.25,  0.25,    1.0,  0.0,
@@ -132,13 +138,7 @@ fn main() {
                 -0.25,  0.25,    0.0,  0.0,
             ];
 
-            let sprite_offsets: [GLfloat; 10] = [
-               -0.5,   0.5,
-                0.5,   0.5,
-                0.0,   0.0,
-               -0.5,  -0.5,
-                0.5,  -0.5,
-            ];
+            let quad_offsets = make_map_offsets(&MAP, 3, 3, 0.5) as Box<[GLfloat]>;
 
             let vao = gen_object(gl::GenVertexArrays);
             gl::BindVertexArray(vao);
@@ -178,8 +178,8 @@ fn main() {
             gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (size_of::<GLfloat>() * sprite_offsets.len()) as GLsizeiptr,
-                sprite_offsets.as_ptr() as *const GLvoid,
+                (size_of::<GLfloat>() * quad_offsets.len()) as GLsizeiptr,
+                quad_offsets.as_ptr() as *const GLvoid,
                 gl::STATIC_DRAW
             );
 
@@ -194,11 +194,14 @@ fn main() {
                 );
                 gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
             }
-        }
+
+            quad_offsets.len() / 2
+        };
+
         // render using blend for smooth edges
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, 5);
+        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, num_tiles as GLint);
         gl::Disable(gl::BLEND);
     }
 
@@ -216,6 +219,20 @@ fn main() {
             _ => (),
         });
     }
+}
+
+fn make_map_offsets(map: &[u8], width: usize, height: usize, tile_space: f32) -> Box<[f32]> {
+    let mut offsets = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            let index: usize = y * width + x;
+            if map[index] != 0 {
+                offsets.push(tile_space * (x as f32 - (width - 1) as f32 / 2.0));
+                offsets.push(tile_space * -(y as f32 - (height - 1) as f32 / 2.0));
+            }
+        }
+    }
+    offsets.into_boxed_slice()
 }
 
 #[inline]
