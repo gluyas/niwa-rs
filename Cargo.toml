@@ -6,4 +6,6 @@ authors = ["Marc <marc.gluyas@gmail.com>"]
 [dependencies]
 gl = "0.10.0"
 glutin = "0.16.0"
+cgmath = "0.16.1"
 image = "0.19.0"
+lazy_static = "1.0.2"
