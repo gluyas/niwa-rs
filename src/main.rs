@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 extern crate gl;
 extern crate glutin;
 
@@ -12,14 +15,37 @@ use std::mem::size_of;
 use std::ptr;
 use std::ffi::CString;
 
+use std::ops::Index;
+
 use glutin::GlContext;
 use gl::types::*;
 
-static MAP: [u8; 9] = [
-    0,      1,      1,
-    0,      1,      1,
-    1,      1,      0,
-];
+lazy_static! {
+    static ref MAP: TileMap<u8> = TileMap {
+        width: 3, height: 3,
+        data: Box::new([
+            0,  1,  0,
+            0,  1,  1,
+            1,  1,  0,
+        ]),
+    };
+}
+
+struct TileMap<T> {
+    pub data: Box<[T]>,
+    pub width: u8,
+    pub height: u8,
+}
+
+impl<T> Index<(u8, u8)> for TileMap<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: (u8, u8)) -> &Self::Output {
+        let index = index.0 * self.width + index.1;
+        &self.data[index as usize]
+    }
+}
 
 fn main() {
     // set up gl context/window
@@ -138,7 +164,7 @@ fn main() {
                 -0.25,  0.25,    0.0,  0.0,
             ];
 
-            let quad_offsets = make_map_offsets(&MAP, 3, 3, 0.5) as Box<[GLfloat]>;
+            let quad_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
 
             let vao = gen_object(gl::GenVertexArrays);
             gl::BindVertexArray(vao);
@@ -221,14 +247,13 @@ fn main() {
     }
 }
 
-fn make_map_offsets(map: &[u8], width: usize, height: usize, tile_space: f32) -> Box<[f32]> {
+fn make_map_offsets(map: &TileMap<u8>, tile_space: f32) -> Box<[f32]> {
     let mut offsets = Vec::new();
-    for y in 0..height {
-        for x in 0..width {
-            let index: usize = y * width + x;
-            if map[index] != 0 {
-                offsets.push(tile_space * (x as f32 - (width - 1) as f32 / 2.0));
-                offsets.push(tile_space * -(y as f32 - (height - 1) as f32 / 2.0));
+    for y in 0..(map.height) {
+        for x in 0..(map.width) {
+            if map[(x, y)] != 0 {
+                offsets.push(tile_space * (x as f32 - (map.width - 1) as f32 / 2.0));
+                offsets.push(tile_space * -(y as f32 - (map.height - 1) as f32 / 2.0));
             }
         }
     }
