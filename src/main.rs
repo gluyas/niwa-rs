@@ -125,29 +125,16 @@ fn main() {
         gl::UseProgram(program);
 
         {
-            // load image
-            use image::*;
-            let sprite: RgbaImage = open("assets/sprites/debug.png")
-                .expect("failed to read image").to_rgba();
-
-            let (width, height) = sprite.dimensions();
-            let sprite: Vec<u8> = sprite.into_raw();
-
             // bind and upload texture
-            let texture = gen_object(gl::GenTextures);
             gl::ActiveTexture(gl::TEXTURE0);
+            let texture = gen_object(gl::GenTextures);
             gl::BindTexture(gl::TEXTURE_2D, texture);
+            load_sprite_to_bound_texture("./assets/sprites/tile.png");
 
+            gl::GenerateMipmap(gl::TEXTURE_2D);
+            
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
-
-            gl::TexImage2D(
-                gl::TEXTURE_2D, 0, gl::RGBA as GLint,
-                width as GLsizei, height as GLsizei,
-                0, gl::RGBA, gl::UNSIGNED_BYTE,
-                sprite.as_ptr() as *const GLvoid,
-            );
-            gl::GenerateMipmap(gl::TEXTURE_2D);
 
             // set uniform
             let name = CString::new("sprite").unwrap();
@@ -155,7 +142,7 @@ fn main() {
             gl::Uniform1i(uniform, 0);
         }
 
-        let num_tiles = {
+        {
             let sprite_quad: [GLfloat; 16] = [
             //   x      y       u     v
                  0.25,  0.25,    1.0,  0.0,
@@ -221,16 +208,102 @@ fn main() {
                 gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
             }
 
-            quad_offsets.len() / 2
+            // render using blend for smooth edges
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, (quad_offsets.len() / 2) as GLint);
+            gl::Disable(gl::BLEND);
         };
 
-        // render using blend for smooth edges
-        gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, num_tiles as GLint);
-        gl::Disable(gl::BLEND);
-    }
+        {   // load player sprite
+            gl::ActiveTexture(gl::TEXTURE1);
+            let sprite = gen_object(gl::GenTextures);
+            gl::BindTexture(gl::TEXTURE_2D, sprite);
+            load_sprite_to_bound_texture("./assets/sprites/avatar.png");
+            gl::GenerateMipmap(gl::TEXTURE_2D);
 
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
+
+            // set uniform
+            let name = CString::new("sprite").unwrap();
+            let uniform = gl::GetUniformLocation(program, name.as_ptr());
+            gl::Uniform1i(uniform, 1);
+        }
+
+        {   // draw player sprite
+            let sprite_quad: [GLfloat; 16] = [
+                //   x      y       u     v
+                0.25, 0.50, 1.0, 0.0,
+                0.25, -0.50, 1.0, 1.0,
+                -0.25, -0.50, 0.0, 1.0,
+                -0.25, 0.50, 0.0, 0.0,
+            ];
+
+            let player_pos: [GLfloat; 2] = [0.0, 0.0];
+
+            let vao = gen_object(gl::GenVertexArrays);
+            gl::BindVertexArray(vao);
+
+            let quad_vbo = gen_object(gl::GenBuffers);
+            gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                (size_of::<GLfloat>() * sprite_quad.len()) as GLsizeiptr,
+                sprite_quad.as_ptr() as *const GLvoid,
+                gl::STATIC_DRAW,
+            );
+
+            {
+                let name = CString::new("position").unwrap();
+                let position = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                gl::EnableVertexAttribArray(position);
+                gl::VertexAttribPointer(
+                    position, 2, gl::FLOAT, gl::FALSE,
+                    4 * size_of::<GLfloat>() as GLsizei,
+                    ptr::null() as *const GLvoid,
+                );
+            }
+
+            {
+                let name = CString::new("uv_in").unwrap();
+                let uv = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                gl::EnableVertexAttribArray(uv);
+                gl::VertexAttribPointer(
+                    uv, 2, gl::FLOAT, gl::FALSE,
+                    4 * size_of::<GLfloat>() as GLsizei,
+                    ptr::null::<GLfloat>().offset(2) as *const GLvoid,
+                );
+            }
+
+            let offset_vbo = gen_object(gl::GenBuffers);
+            gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                (size_of::<GLfloat>() * player_pos.len()) as GLsizeiptr,
+                player_pos.as_ptr() as *const GLvoid,
+                gl::STATIC_DRAW,
+            );
+
+            {
+                let name = CString::new("offset").unwrap();
+                let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                gl::EnableVertexAttribArray(offset);
+                gl::VertexAttribPointer(
+                    offset, 2, gl::FLOAT, gl::FALSE,
+                    0 as GLsizei,
+                    ptr::null() as *const GLvoid,
+                );
+                gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
+            }
+
+            // render using blend for smooth edges
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, 1);
+            gl::Disable(gl::BLEND);
+        }
+    }
     gl_window.swap_buffers().expect("buffer swap failed");
 
     let mut exit = false;
@@ -258,6 +331,23 @@ fn make_map_offsets(map: &TileMap<u8>, tile_space: f32) -> Box<[f32]> {
         }
     }
     offsets.into_boxed_slice()
+}
+
+unsafe fn load_sprite_to_bound_texture(sprite_path: impl AsRef<std::path::Path>) {
+    use image::*;
+    let sprite: RgbaImage = open(sprite_path)
+        .expect("failed to read image")
+        .to_rgba();
+
+    let (width, height) = sprite.dimensions();
+    let sprite: Vec<GLubyte> = sprite.into_raw();
+
+    gl::TexImage2D(
+        gl::TEXTURE_2D, 0, gl::RGBA as GLint,
+        width as GLsizei, height as GLsizei,
+        0, gl::RGBA, gl::UNSIGNED_BYTE,
+        sprite.as_ptr() as *const GLvoid,
+    );
 }
 
 #[inline]
