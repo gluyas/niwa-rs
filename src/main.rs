@@ -223,7 +223,9 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let (player_shader, player_vao) = unsafe {
+    let mut player_pos: [GLfloat; 2] = [0.0, 0.0];
+
+    let (player_shader, player_vao, player_pos_vbo) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
@@ -259,8 +261,6 @@ fn main() {
                 -0.25, 0.75, 0.0, 0.0,
             ];
 
-            let player_pos: [GLfloat; 2] = [0.0, 0.0];
-
             let quad_vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
             gl::BufferData(
@@ -291,33 +291,36 @@ fn main() {
                     ptr::null::<GLfloat>().offset(2) as *const GLvoid,
                 );
             }
-
-            let offset_vbo = gen_object(gl::GenBuffers);
-            gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                (size_of::<GLfloat>() * player_pos.len()) as GLsizeiptr,
-                player_pos.as_ptr() as *const GLvoid,
-                gl::STATIC_DRAW,
-            );
-
-            {
-                let name = CString::new("offset").unwrap();
-                let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
-                gl::EnableVertexAttribArray(offset);
-                gl::VertexAttribPointer(
-                    offset, 2, gl::FLOAT, gl::FALSE,
-                    0 as GLsizei,
-                    ptr::null() as *const GLvoid,
-                );
-                gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
-            }
         }
-        (program, vao)
+
+        let pos_vbo = gen_object(gl::GenBuffers);
+        gl::BindBuffer(gl::ARRAY_BUFFER, pos_vbo);
+        {
+            let name = CString::new("offset").unwrap();
+            let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+            gl::EnableVertexAttribArray(offset);
+            gl::VertexAttribPointer(
+                offset, 2, gl::FLOAT, gl::FALSE,
+                0 as GLsizei,
+                ptr::null() as *const GLvoid,
+            );
+            gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
+        }
+
+        (program, vao, pos_vbo)
     };
-    let draw_player = || unsafe {
+    let draw_player = |player_pos: &[GLfloat; 2]| unsafe {
         gl::UseProgram(player_shader);
         gl::BindVertexArray(player_vao);
+
+        // update player coordinates
+        gl::BindBuffer(gl::ARRAY_BUFFER, player_pos_vbo);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            (size_of::<GLfloat>() * player_pos.len()) as GLsizeiptr,
+            player_pos.as_ptr() as *const GLvoid,
+            gl::DYNAMIC_DRAW,
+        );
 
         // render using blend for smooth edges
         gl::Enable(gl::BLEND);
@@ -326,21 +329,38 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    {   // full scene render
+    let render = |player_pos: &[GLfloat; 2]| {
         draw_background();
         draw_world();
-        draw_player();
-    }
-
-    gl_window.swap_buffers().expect("buffer swap failed");
+        draw_player(&player_pos);
+        gl_window.swap_buffers().expect("buffer swap failed");
+    };
+    render(&player_pos);
 
     let mut exit = false;
     while !exit {
-        use glutin::{Event, WindowEvent};
+        use glutin::*;
 
         events_loop.poll_events(|event| match event {
-            Event::WindowEvent{window_id: _, event} => match event {
+            Event::WindowEvent{ event, .. } => match event {
                 WindowEvent::CloseRequested => exit = true,
+                _ => (),
+            },
+            Event::DeviceEvent{ event, .. } => match event {
+                DeviceEvent::Key(KeyboardInput{
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(keycode),
+                    .. }) => {
+                    match keycode {
+                        VirtualKeyCode::W => player_pos[1] += 0.5,
+                        VirtualKeyCode::A => player_pos[0] -= 0.5,
+                        VirtualKeyCode::S => player_pos[1] -= 0.5,
+                        VirtualKeyCode::D => player_pos[0] += 0.5,
+                        VirtualKeyCode::Escape => exit = true,
+                        _ => (),
+                    }
+                    render(&player_pos);
+                },
                 _ => (),
             },
             _ => (),
