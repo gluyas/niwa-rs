@@ -62,13 +62,13 @@ fn main() {
     // load fn ptrs into gl from context
     gl::load_with(|addr| gl_window.get_proc_address(addr) as *const _);
 
-    unsafe {    // draw background
+    let (bg_shader, bg_vao) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
             File::open("src/shader/background.frag").unwrap(), gl::FRAGMENT_SHADER);
 
-        let program = link_shaders(&[vert, frag, 0]);
+        let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
 
         // set uniforms
@@ -77,24 +77,21 @@ fn main() {
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform3f(uniform, 0f32, 1f32, 1f32);
         }
-
         {
             let name = CString::new("bg_color_bot").unwrap();
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform3f(uniform, 1f32, 0f32, 1f32);
         }
-
         {
             let name = CString::new("bg_resolution").unwrap();
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform2ui(uniform, 1280, 720);
         }
 
+        let vao = gen_object(gl::GenVertexArrays);
+        gl::BindVertexArray(vao);
         {
             let bg_quad: [GLfloat; 8] = [1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0];
-
-            let vao = gen_object(gl::GenVertexArrays);
-            gl::BindVertexArray(vao);
 
             let vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
@@ -112,27 +109,32 @@ fn main() {
                 gl::VertexAttribPointer(position, 2, gl::FLOAT, gl::FALSE, 0, ptr::null());
             }
         }
-        gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
-    }
 
-    unsafe {    // draw textured quad
+        (program, vao)
+    };
+    let draw_background = || unsafe {
+        gl::UseProgram(bg_shader);
+        gl::BindVertexArray(bg_vao);
+
+        gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
+    };
+
+    let (world_shader, world_vao, world_num_tiles) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
             File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
 
-        let program = link_shaders(&[vert, frag, 0]);
+        let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
-
         {
-            // bind and upload texture
             gl::ActiveTexture(gl::TEXTURE0);
             let texture = gen_object(gl::GenTextures);
             gl::BindTexture(gl::TEXTURE_2D, texture);
             load_sprite_to_bound_texture("./assets/sprites/tile.png");
 
             gl::GenerateMipmap(gl::TEXTURE_2D);
-            
+
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
 
@@ -142,19 +144,18 @@ fn main() {
             gl::Uniform1i(uniform, 0);
         }
 
+        let quad_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
+
+        let vao = gen_object(gl::GenVertexArrays);
+        gl::BindVertexArray(vao);
         {
             let sprite_quad: [GLfloat; 16] = [
-            //   x      y       u     v
-                 0.25,  0.25,    1.0,  0.0,
-                 0.25, -0.25,    1.0,  1.0,
-                -0.25, -0.25,    0.0,  1.0,
-                -0.25,  0.25,    0.0,  0.0,
+                //   x      y       u     v
+                0.25, 0.25, 1.0, 0.0,
+                0.25, -0.25, 1.0, 1.0,
+                -0.25, -0.25, 0.0, 1.0,
+                -0.25, 0.25, 0.0, 0.0,
             ];
-
-            let quad_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
-
-            let vao = gen_object(gl::GenVertexArrays);
-            gl::BindVertexArray(vao);
 
             let quad_vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
@@ -207,19 +208,35 @@ fn main() {
                 );
                 gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
             }
+        }
 
-            // render using blend for smooth edges
-            gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-            gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, (quad_offsets.len() / 2) as GLint);
-            gl::Disable(gl::BLEND);
-        };
+        (program, vao, quad_offsets.len() / 2)
+    };
+    let draw_world = || unsafe {
+        gl::UseProgram(world_shader);
+        gl::BindVertexArray(world_vao);
 
-        {   // load player sprite
+        // render using blend for smooth edges
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, world_num_tiles as GLsizei);
+        gl::Disable(gl::BLEND);
+    };
+
+    let (player_shader, player_vao) = unsafe {
+        let vert = compile_shader(
+            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
+        let frag = compile_shader(
+            File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
+
+        let program = link_shaders(&[vert, frag]);
+        gl::UseProgram(program);
+        {
             gl::ActiveTexture(gl::TEXTURE1);
-            let sprite = gen_object(gl::GenTextures);
-            gl::BindTexture(gl::TEXTURE_2D, sprite);
+            let texture = gen_object(gl::GenTextures);
+            gl::BindTexture(gl::TEXTURE_2D, texture);
             load_sprite_to_bound_texture("./assets/sprites/avatar.png");
+
             gl::GenerateMipmap(gl::TEXTURE_2D);
 
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
@@ -231,19 +248,18 @@ fn main() {
             gl::Uniform1i(uniform, 1);
         }
 
-        {   // draw player sprite
+        let vao = gen_object(gl::GenVertexArrays);
+        gl::BindVertexArray(vao);
+        {
             let sprite_quad: [GLfloat; 16] = [
                 //   x      y       u     v
-                0.25, 0.50, 1.0, 0.0,
-                0.25, -0.50, 1.0, 1.0,
-                -0.25, -0.50, 0.0, 1.0,
-                -0.25, 0.50, 0.0, 0.0,
+                0.25, 0.75, 1.0, 0.0,
+                0.25, -0.75, 1.0, 1.0,
+                -0.25, -0.75, 0.0, 1.0,
+                -0.25, 0.75, 0.0, 0.0,
             ];
 
             let player_pos: [GLfloat; 2] = [0.0, 0.0];
-
-            let vao = gen_object(gl::GenVertexArrays);
-            gl::BindVertexArray(vao);
 
             let quad_vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
@@ -296,14 +312,26 @@ fn main() {
                 );
                 gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
             }
-
-            // render using blend for smooth edges
-            gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-            gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, 1);
-            gl::Disable(gl::BLEND);
         }
+        (program, vao)
+    };
+    let draw_player = || unsafe {
+        gl::UseProgram(player_shader);
+        gl::BindVertexArray(player_vao);
+
+        // render using blend for smooth edges
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, 1);
+        gl::Disable(gl::BLEND);
+    };
+
+    {   // full scene render
+        draw_background();
+        draw_world();
+        draw_player();
     }
+
     gl_window.swap_buffers().expect("buffer swap failed");
 
     let mut exit = false;
