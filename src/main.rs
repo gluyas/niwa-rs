@@ -119,14 +119,21 @@ fn main() {
         gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
     };
 
-    let (world_shader, world_vao, world_num_tiles) = unsafe {
+    let (world_shader, sprite_uniform_loc) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
             File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag]);
-        gl::UseProgram(program);
+
+        let name = CString::new("sprite").unwrap();
+        let uniform = gl::GetUniformLocation(program, name.as_ptr());
+
+        (program, uniform)
+    };
+
+    let (tile_sprite, stage_vao, stage_num_tiles) = unsafe {
         {
             gl::ActiveTexture(gl::TEXTURE0);
             let texture = gen_object(gl::GenTextures);
@@ -137,11 +144,6 @@ fn main() {
 
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
-
-            // set uniform
-            let name = CString::new("sprite").unwrap();
-            let uniform = gl::GetUniformLocation(program, name.as_ptr());
-            gl::Uniform1i(uniform, 0);
         }
 
         let quad_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
@@ -168,7 +170,7 @@ fn main() {
 
             {
                 let name = CString::new("position").unwrap();
-                let position = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                let position = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(position);
                 gl::VertexAttribPointer(
                     position, 2, gl::FLOAT, gl::FALSE,
@@ -179,7 +181,7 @@ fn main() {
 
             {
                 let name = CString::new("uv_in").unwrap();
-                let uv = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                let uv = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(uv);
                 gl::VertexAttribPointer(
                     uv, 2, gl::FLOAT, gl::FALSE,
@@ -199,7 +201,7 @@ fn main() {
 
             {
                 let name = CString::new("offset").unwrap();
-                let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                let offset = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(offset);
                 gl::VertexAttribPointer(
                     offset, 2, gl::FLOAT, gl::FALSE,
@@ -210,30 +212,25 @@ fn main() {
             }
         }
 
-        (program, vao, quad_offsets.len() / 2)
+        (0, vao, quad_offsets.len() / 2)
     };
-    let draw_world = || unsafe {
+    let draw_stage = || unsafe {
         gl::UseProgram(world_shader);
-        gl::BindVertexArray(world_vao);
+        gl::Uniform1i(sprite_uniform_loc, tile_sprite);
+
+        gl::BindVertexArray(stage_vao);
 
         // render using blend for smooth edges
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, world_num_tiles as GLsizei);
+        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, stage_num_tiles as GLsizei);
         gl::Disable(gl::BLEND);
     };
 
     let mut player_pos: [GLfloat; 2] = [0.0, 0.0];
 
-    let (player_shader, player_vao, player_pos_vbo) = unsafe {
-        let vert = compile_shader(
-            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
-        let frag = compile_shader(
-            File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
-
-        let program = link_shaders(&[vert, frag]);
-        gl::UseProgram(program);
-        {
+    let (player_sprite, player_vao, player_pos_vbo) = unsafe {
+        {   // move player sprite into texture unit 1
             gl::ActiveTexture(gl::TEXTURE1);
             let texture = gen_object(gl::GenTextures);
             gl::BindTexture(gl::TEXTURE_2D, texture);
@@ -243,11 +240,6 @@ fn main() {
 
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
-
-            // set uniform
-            let name = CString::new("sprite").unwrap();
-            let uniform = gl::GetUniformLocation(program, name.as_ptr());
-            gl::Uniform1i(uniform, 1);
         }
 
         let vao = gen_object(gl::GenVertexArrays);
@@ -272,7 +264,7 @@ fn main() {
 
             {
                 let name = CString::new("position").unwrap();
-                let position = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                let position = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(position);
                 gl::VertexAttribPointer(
                     position, 2, gl::FLOAT, gl::FALSE,
@@ -283,7 +275,7 @@ fn main() {
 
             {
                 let name = CString::new("uv_in").unwrap();
-                let uv = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+                let uv = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(uv);
                 gl::VertexAttribPointer(
                     uv, 2, gl::FLOAT, gl::FALSE,
@@ -297,7 +289,7 @@ fn main() {
         gl::BindBuffer(gl::ARRAY_BUFFER, pos_vbo);
         {
             let name = CString::new("offset").unwrap();
-            let offset = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
+            let offset = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
             gl::EnableVertexAttribArray(offset);
             gl::VertexAttribPointer(
                 offset, 2, gl::FLOAT, gl::FALSE,
@@ -307,10 +299,12 @@ fn main() {
             gl::VertexAttribDivisor(offset, 1); // use for instanced rendering
         }
 
-        (program, vao, pos_vbo)
+        (1, vao, pos_vbo)
     };
     let draw_player = |player_pos: &[GLfloat; 2]| unsafe {
-        gl::UseProgram(player_shader);
+        gl::UseProgram(world_shader);
+        gl::Uniform1i(sprite_uniform_loc, player_sprite);
+
         gl::BindVertexArray(player_vao);
 
         // update player coordinates
@@ -331,7 +325,7 @@ fn main() {
 
     let render = |player_pos: &[GLfloat; 2]| {
         draw_background();
-        draw_world();
+        draw_stage();
         draw_player(&player_pos);
         gl_window.swap_buffers().expect("buffer swap failed");
     };
