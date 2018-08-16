@@ -4,6 +4,8 @@ extern crate lazy_static;
 extern crate gl;
 extern crate glutin;
 
+extern crate cgmath;
+
 extern crate image;
 
 use std::default::Default;
@@ -64,7 +66,7 @@ fn main() {
 
     let (bg_shader, bg_vao) = unsafe {
         let vert = compile_shader(
-            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
+            File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
             File::open("src/shader/background.frag").unwrap(), gl::FRAGMENT_SHADER);
 
@@ -86,6 +88,26 @@ fn main() {
             let name = CString::new("bg_resolution").unwrap();
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform2ui(uniform, 1280, 720);
+        }
+        {
+            use cgmath::*;
+
+            let projection_uniform = {
+                let name = CString::new("projection").unwrap();
+                gl::GetUniformLocation(program, name.as_ptr())
+            };
+            let modelview_uniform = {
+                let name = CString::new("modelview").unwrap();
+                gl::GetUniformLocation(program, name.as_ptr())
+            };
+
+            let projection: Matrix4<f32> = Matrix4::identity();
+            let modelview: Matrix4<f32> = Matrix4::identity();
+
+            gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
+                projection.as_ptr() as *const GLfloat);
+            gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
+                modelview.as_ptr() as *const GLfloat);
         }
 
         let vao = gen_object(gl::GenVertexArrays);
@@ -119,52 +141,83 @@ fn main() {
         gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
     };
 
-    let (world_shader, sprite_uniform_loc) = unsafe {
+    let (world_shader, _modelview_uniform_loc, sprite_uniform_loc) = unsafe {
         let vert = compile_shader(
-            File::open("src/shader/basic2d.vert").unwrap(), gl::VERTEX_SHADER);
+            File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
             File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag]);
+        gl::UseProgram(program);
 
-        let name = CString::new("sprite").unwrap();
-        let uniform = gl::GetUniformLocation(program, name.as_ptr());
+        let projection_uniform = {
+            let name = CString::new("projection").unwrap();
+            gl::GetUniformLocation(program, name.as_ptr())
+        };
 
-        (program, uniform)
+        let modelview_uniform = {
+            let name = CString::new("modelview").unwrap();
+            gl::GetUniformLocation(program, name.as_ptr())
+        };
+
+        {
+            use cgmath::*;
+
+            let projection: Matrix4<f32> = perspective(Deg(30.0), 1280.0 / 720.0, 0.1, 100.0);
+            let modelview: Matrix4<f32> = Matrix4::look_at(
+                Point3::new(2.0, 2.0, 2.0),
+                Point3::new(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 0.0, 1.0),
+            );
+
+            gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
+                projection.as_ptr() as *const GLfloat);
+            gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
+                modelview.as_ptr() as *const GLfloat);
+        }
+
+        let sprite_uniform = {
+            let name = CString::new("sprite").unwrap();
+            gl::GetUniformLocation(program, name.as_ptr())
+        };
+
+        (program, modelview_uniform, sprite_uniform)
     };
 
-    let (tile_sprite, stage_vao, stage_num_tiles) = unsafe {
+    let (tile_sprite, tile_mesh_len, stage_vao, stage_num_tiles) = unsafe {
         {
             gl::ActiveTexture(gl::TEXTURE0);
             let texture = gen_object(gl::GenTextures);
             gl::BindTexture(gl::TEXTURE_2D, texture);
-            load_sprite_to_bound_texture("./assets/sprites/tile.png");
+            load_sprite_to_bound_texture("./assets/textures/warts.png");
 
-            gl::GenerateMipmap(gl::TEXTURE_2D);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as GLint);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as GLint);
 
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
         }
 
-        let quad_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
+        let tile_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
+
+        let tile_mesh: [GLfloat; 30] = [
+            -0.25, -0.25, 0.0, 0.0, 1.0,
+            0.25, -0.25, 0.0, 1.0, 1.0,
+            -0.25, 0.25, 0.0, 0.0, 0.5,
+            0.25, 0.25, 0.0, 1.0, 0.5,
+            -0.25, 0.25, -0.5, 0.0, 0.0,
+            0.25, 0.25, -0.5, 1.0, 0.0,
+        ];
 
         let vao = gen_object(gl::GenVertexArrays);
         gl::BindVertexArray(vao);
         {
-            let sprite_quad: [GLfloat; 16] = [
-                //   x      y       u     v
-                0.25, 0.25, 1.0, 0.0,
-                0.25, -0.25, 1.0, 1.0,
-                -0.25, -0.25, 0.0, 1.0,
-                -0.25, 0.25, 0.0, 0.0,
-            ];
-
             let quad_vbo = gen_object(gl::GenBuffers);
             gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (size_of::<GLfloat>() * sprite_quad.len()) as GLsizeiptr,
-                sprite_quad.as_ptr() as *const GLvoid,
+                (size_of::<GLfloat>() * tile_mesh.len()) as GLsizeiptr,
+                tile_mesh.as_ptr() as *const GLvoid,
                 gl::STATIC_DRAW,
             );
 
@@ -173,8 +226,8 @@ fn main() {
                 let position = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(position);
                 gl::VertexAttribPointer(
-                    position, 2, gl::FLOAT, gl::FALSE,
-                    4 * size_of::<GLfloat>() as GLsizei,
+                    position, 3, gl::FLOAT, gl::FALSE,
+                    5 * size_of::<GLfloat>() as GLsizei,
                     ptr::null() as *const GLvoid,
                 );
             }
@@ -185,8 +238,8 @@ fn main() {
                 gl::EnableVertexAttribArray(uv);
                 gl::VertexAttribPointer(
                     uv, 2, gl::FLOAT, gl::FALSE,
-                    4 * size_of::<GLfloat>() as GLsizei,
-                    ptr::null::<GLfloat>().offset(2) as *const GLvoid,
+                    5 * size_of::<GLfloat>() as GLsizei,
+                    ptr::null::<GLfloat>().offset(3) as *const GLvoid,
                 );
             }
 
@@ -194,8 +247,8 @@ fn main() {
             gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (size_of::<GLfloat>() * quad_offsets.len()) as GLsizeiptr,
-                quad_offsets.as_ptr() as *const GLvoid,
+                (size_of::<GLfloat>() * tile_offsets.len()) as GLsizeiptr,
+                tile_offsets.as_ptr() as *const GLvoid,
                 gl::STATIC_DRAW
             );
 
@@ -212,7 +265,7 @@ fn main() {
             }
         }
 
-        (0, vao, quad_offsets.len() / 2)
+        (0, tile_mesh.len() / 5, vao, tile_offsets.len() / 2)
     };
     let draw_stage = || unsafe {
         gl::UseProgram(world_shader);
@@ -223,7 +276,7 @@ fn main() {
         // render using blend for smooth edges
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-        gl::DrawArraysInstanced(gl::TRIANGLE_FAN, 0, 4, stage_num_tiles as GLsizei);
+        gl::DrawArraysInstanced(gl::TRIANGLE_STRIP, 0, tile_mesh_len as GLsizei, stage_num_tiles as GLsizei);
         gl::Disable(gl::BLEND);
     };
 
@@ -245,12 +298,11 @@ fn main() {
         let vao = gen_object(gl::GenVertexArrays);
         gl::BindVertexArray(vao);
         {
-            let sprite_quad: [GLfloat; 16] = [
-                //   x      y       u     v
-                0.25, 0.75, 1.0, 0.0,
-                0.25, -0.75, 1.0, 1.0,
-                -0.25, -0.75, 0.0, 1.0,
-                -0.25, 0.75, 0.0, 0.0,
+            let sprite_quad: [GLfloat; 20] = [
+                0.25, 0.0, 0.0, 1.0, 0.0,
+                0.25, 0.0, 1.5, 1.0, 1.0,
+                -0.25, 0.0, 1.5, 0.0, 1.0,
+                -0.25, 0.0, 0.0, 0.0, 0.0,
             ];
 
             let quad_vbo = gen_object(gl::GenBuffers);
@@ -267,8 +319,8 @@ fn main() {
                 let position = gl::GetAttribLocation(world_shader, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(position);
                 gl::VertexAttribPointer(
-                    position, 2, gl::FLOAT, gl::FALSE,
-                    4 * size_of::<GLfloat>() as GLsizei,
+                    position, 3, gl::FLOAT, gl::FALSE,
+                    5 * size_of::<GLfloat>() as GLsizei,
                     ptr::null() as *const GLvoid,
                 );
             }
@@ -279,8 +331,8 @@ fn main() {
                 gl::EnableVertexAttribArray(uv);
                 gl::VertexAttribPointer(
                     uv, 2, gl::FLOAT, gl::FALSE,
-                    4 * size_of::<GLfloat>() as GLsizei,
-                    ptr::null::<GLfloat>().offset(2) as *const GLvoid,
+                    5 * size_of::<GLfloat>() as GLsizei,
+                    ptr::null::<GLfloat>().offset(3) as *const GLvoid,
                 );
             }
         }
@@ -323,10 +375,15 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let render = |player_pos: &[GLfloat; 2]| {
+    let render = |player_pos: &[GLfloat; 2]| unsafe {
+        gl::Clear(gl::DEPTH_BUFFER_BIT);   // background overwrites color buffer
+        gl::Disable(gl::DEPTH_TEST);
         draw_background();
+
+        gl::Enable(gl::DEPTH_TEST); // enable depth test for rendering world
         draw_stage();
         draw_player(&player_pos);
+
         gl_window.swap_buffers().expect("buffer swap failed");
     };
     render(&player_pos);
@@ -346,10 +403,10 @@ fn main() {
                         virtual_keycode: Some(keycode),
                     .. }) => {
                     match keycode {
-                        VirtualKeyCode::W => player_pos[1] += 0.5,
-                        VirtualKeyCode::A => player_pos[0] -= 0.5,
-                        VirtualKeyCode::S => player_pos[1] -= 0.5,
-                        VirtualKeyCode::D => player_pos[0] += 0.5,
+                        VirtualKeyCode::W => player_pos[1] -= 0.5,
+                        VirtualKeyCode::A => player_pos[0] += 0.5,
+                        VirtualKeyCode::S => player_pos[1] += 0.5,
+                        VirtualKeyCode::D => player_pos[0] -= 0.5,
                         VirtualKeyCode::Escape => exit = true,
                         _ => (),
                     }
@@ -368,7 +425,7 @@ fn make_map_offsets(map: &TileMap<u8>, tile_space: f32) -> Box<[f32]> {
         for x in 0..(map.width) {
             if map[(x, y)] != 0 {
                 offsets.push(tile_space * (x as f32 - (map.width - 1) as f32 / 2.0));
-                offsets.push(tile_space * -(y as f32 - (map.height - 1) as f32 / 2.0));
+                offsets.push(tile_space * (y as f32 - (map.height - 1) as f32 / 2.0));
             }
         }
     }
@@ -379,6 +436,7 @@ unsafe fn load_sprite_to_bound_texture(sprite_path: impl AsRef<std::path::Path>)
     use image::*;
     let sprite: RgbaImage = open(sprite_path)
         .expect("failed to read image")
+        .flipv()
         .to_rgba();
 
     let (width, height) = sprite.dimensions();
