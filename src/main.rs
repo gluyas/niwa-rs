@@ -141,7 +141,9 @@ fn main() {
         gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
     };
 
-    let (world_shader, _modelview_uniform_loc, sprite_uniform_loc) = unsafe {
+    let mut camera_azimuth: f32 = 0.0;
+
+    let (world_shader, modelview_uniform, sprite_uniform) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
@@ -164,16 +166,8 @@ fn main() {
             use cgmath::*;
 
             let projection: Matrix4<f32> = perspective(Deg(30.0), 1280.0 / 720.0, 0.1, 100.0);
-            let modelview: Matrix4<f32> = Matrix4::look_at(
-                Point3::new(2.0, 2.0, 2.0),
-                Point3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, 0.0, 1.0),
-            );
-
             gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
                 projection.as_ptr() as *const GLfloat);
-            gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
-                modelview.as_ptr() as *const GLfloat);
         }
 
         let sprite_uniform = {
@@ -182,6 +176,22 @@ fn main() {
         };
 
         (program, modelview_uniform, sprite_uniform)
+    };
+    let update_camera = |camera_azimuth: f32| unsafe {
+        use cgmath::*;
+
+        gl::UseProgram(world_shader);
+
+        let camera_pos = Quaternion::from_angle_z(Deg(camera_azimuth))
+            .rotate_point(Point3::new(2.0, 2.0, 2.0));
+
+        let modelview: Matrix4<f32> = Matrix4::look_at(
+            camera_pos,
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+        );
+        gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
+            modelview.as_ptr() as *const GLfloat);
     };
 
     let (tile_sprite, tile_mesh_len, stage_vao, stage_num_tiles) = unsafe {
@@ -269,7 +279,7 @@ fn main() {
     };
     let draw_stage = || unsafe {
         gl::UseProgram(world_shader);
-        gl::Uniform1i(sprite_uniform_loc, tile_sprite);
+        gl::Uniform1i(sprite_uniform, tile_sprite);
 
         gl::BindVertexArray(stage_vao);
 
@@ -355,7 +365,7 @@ fn main() {
     };
     let draw_player = |player_pos: &[GLfloat; 2]| unsafe {
         gl::UseProgram(world_shader);
-        gl::Uniform1i(sprite_uniform_loc, player_sprite);
+        gl::Uniform1i(sprite_uniform, player_sprite);
 
         gl::BindVertexArray(player_vao);
 
@@ -375,10 +385,12 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let render = |player_pos: &[GLfloat; 2]| unsafe {
+    let render = |camera_azimuth: f32, player_pos: &[GLfloat; 2]| unsafe {
         gl::Clear(gl::DEPTH_BUFFER_BIT);   // background overwrites color buffer
         gl::Disable(gl::DEPTH_TEST);
         draw_background();
+
+        update_camera(camera_azimuth);
 
         gl::Enable(gl::DEPTH_TEST); // enable depth test for rendering world
         draw_stage();
@@ -386,7 +398,7 @@ fn main() {
 
         gl_window.swap_buffers().expect("buffer swap failed");
     };
-    render(&player_pos);
+    render(camera_azimuth, &player_pos);
 
     let mut exit = false;
     while !exit {
@@ -407,10 +419,12 @@ fn main() {
                         VirtualKeyCode::A => player_pos[0] += 0.5,
                         VirtualKeyCode::S => player_pos[1] += 0.5,
                         VirtualKeyCode::D => player_pos[0] -= 0.5,
+                        VirtualKeyCode::Q => camera_azimuth -= 5.0,
+                        VirtualKeyCode::E => camera_azimuth += 5.0,
                         VirtualKeyCode::Escape => exit = true,
                         _ => (),
                     }
-                    render(&player_pos);
+                    render(camera_azimuth, &player_pos);
                 },
                 _ => (),
             },
