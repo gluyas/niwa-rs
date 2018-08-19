@@ -141,8 +141,6 @@ fn main() {
         gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
     };
 
-    let mut camera_azimuth: f32 = 0.0;
-
     let (world_shader, modelview_uniform, sprite_uniform) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
@@ -165,7 +163,7 @@ fn main() {
         {
             use cgmath::*;
 
-            let projection: Matrix4<f32> = perspective(Deg(30.0), 1280.0 / 720.0, 0.1, 100.0);
+            let projection: Matrix4<f32> = perspective(Deg(20.0), 1280.0 / 720.0, 0.1, 100.0);
             gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
                 projection.as_ptr() as *const GLfloat);
         }
@@ -177,13 +175,19 @@ fn main() {
 
         (program, modelview_uniform, sprite_uniform)
     };
-    let update_camera = |camera_azimuth: f32| unsafe {
+
+    let mut camera_azimuth: f32 = 45.0;
+    let mut camera_elevation: f32 = 30.0;
+    let mut camera_distance: f32 = 6.0;
+
+    let update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32| unsafe {
         use cgmath::*;
 
         gl::UseProgram(world_shader);
 
-        let camera_pos = Quaternion::from_angle_z(Deg(camera_azimuth))
-            .rotate_point(Point3::new(2.0, 2.0, 2.0));
+        let camera_pos = (Quaternion::from_angle_z(Deg(camera_azimuth))
+            * Quaternion::from_angle_y(Deg(-camera_elevation)))
+            .rotate_point(Point3::new(camera_distance, 0.0, 0.0));
 
         let modelview: Matrix4<f32> = Matrix4::look_at(
             camera_pos,
@@ -400,12 +404,15 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let render = |camera_azimuth: f32, player_pos: &[GLfloat; 2]| unsafe {
+    let render = |
+        camera_distance: f32, camera_elevation: f32, camera_azimuth: f32,
+        player_pos: &[GLfloat; 2]
+    | unsafe {
         gl::Clear(gl::DEPTH_BUFFER_BIT);   // background overwrites color buffer
         gl::Disable(gl::DEPTH_TEST);
         draw_background();
 
-        update_camera(camera_azimuth);
+        update_camera(camera_distance, camera_elevation, camera_azimuth);
 
         gl::Enable(gl::DEPTH_TEST); // enable depth test for rendering world
         draw_stage();
@@ -413,22 +420,46 @@ fn main() {
 
         gl_window.swap_buffers().expect("buffer swap failed");
     };
-    render(camera_azimuth, &player_pos);
+    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+
+    let mut mouse_held = false;
+    let mut mouse_drag_origin = (0.0, 0.0);
 
     let mut exit = false;
     while !exit {
         use glutin::*;
 
         events_loop.poll_events(|event| match event {
-            Event::WindowEvent{ event, .. } => match event {
+            Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => exit = true,
+                WindowEvent::MouseWheel {
+                    delta: MouseScrollDelta::LineDelta(_delta_x, delta_y), ..
+                } => {
+                    camera_distance += -delta_y * 0.5;
+                    if camera_distance < 0.0 { camera_distance = 0.0 };
+                    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+                },
+                WindowEvent::MouseInput { button: MouseButton::Left, state, .. } => match state {
+                    ElementState::Pressed => { mouse_held = true; },
+                    ElementState::Released => { mouse_held = false; },
+                },
+                WindowEvent::CursorMoved { position, .. } => {
+                    if mouse_held {
+                        camera_azimuth += 0.3 * (mouse_drag_origin.0 - position.0) as f32;
+                        camera_elevation -= 0.3 * (mouse_drag_origin.1 - position.1) as f32;
+                        if      camera_elevation < -85.0 { camera_elevation = -85.0; }
+                        else if camera_elevation >  85.0 { camera_elevation =  85.0; }
+                        render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+                    }
+                    mouse_drag_origin = position;
+                }
                 _ => (),
             },
-            Event::DeviceEvent{ event, .. } => match event {
-                DeviceEvent::Key(KeyboardInput{
-                        state: ElementState::Pressed,
-                        virtual_keycode: Some(keycode),
-                    .. }) => {
+            Event::DeviceEvent { event, .. } => match event {
+                DeviceEvent::Key(KeyboardInput {
+                    state: ElementState::Pressed,
+                    virtual_keycode: Some(keycode),
+                .. }) => {
                     match keycode {
                         VirtualKeyCode::W => player_pos[1] -= 0.5,
                         VirtualKeyCode::A => player_pos[0] += 0.5,
@@ -439,7 +470,7 @@ fn main() {
                         VirtualKeyCode::Escape => exit = true,
                         _ => (),
                     }
-                    render(camera_azimuth, &player_pos);
+                    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
                 },
                 _ => (),
             },
