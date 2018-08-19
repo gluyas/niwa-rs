@@ -22,13 +22,16 @@ use std::ops::Index;
 use glutin::GlContext;
 use gl::types::*;
 
+use cgmath::*;
+
 lazy_static! {
     static ref MAP: TileMap<u8> = TileMap {
-        width: 3, height: 3,
+        width: 5, height: 4,
         data: Box::new([
-            0,  1,  0,
-            0,  1,  1,
-            1,  1,  0,
+            0, 1, 1, 1, 1,
+            1, 1, 1, 0, 1,
+            1, 0, 1, 1, 1,
+            1, 1, 1, 0, 0,
         ]),
     };
 }
@@ -44,7 +47,7 @@ impl<T> Index<(u8, u8)> for TileMap<T> {
 
     #[inline]
     fn index(&self, index: (u8, u8)) -> &Self::Output {
-        let index = index.0 * self.width + index.1;
+        let index = (self.height - index.1 - 1) * self.width + index.0;
         &self.data[index as usize]
     }
 }
@@ -90,8 +93,6 @@ fn main() {
             gl::Uniform2ui(uniform, 1280, 720);
         }
         {
-            use cgmath::*;
-
             let projection_uniform = {
                 let name = CString::new("projection").unwrap();
                 gl::GetUniformLocation(program, name.as_ptr())
@@ -161,9 +162,7 @@ fn main() {
         };
 
         {
-            use cgmath::*;
-
-            let projection: Matrix4<f32> = perspective(Deg(20.0), 1280.0 / 720.0, 0.1, 100.0);
+            let projection: Matrix4<f32> = perspective(Deg(30.0), 1280.0 / 720.0, 0.1, 100.0);
             gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
                 projection.as_ptr() as *const GLfloat);
         }
@@ -176,24 +175,24 @@ fn main() {
         (program, modelview_uniform, sprite_uniform)
     };
 
-    let mut camera_azimuth: f32 = 45.0;
+    let mut camera_azimuth: f32 = -45.0;
     let mut camera_elevation: f32 = 30.0;
-    let mut camera_distance: f32 = 6.0;
+    let mut camera_distance: f32 = 10.0;
+    let centre_offset = -Vector3::new(MAP.width as f32 - 1.0, MAP.height as f32 - 1.0, 0.0) / 2.0;
 
     let update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32| unsafe {
-        use cgmath::*;
-
         gl::UseProgram(world_shader);
 
         let camera_pos = (Quaternion::from_angle_z(Deg(camera_azimuth))
-            * Quaternion::from_angle_y(Deg(-camera_elevation)))
-            .rotate_point(Point3::new(camera_distance, 0.0, 0.0));
+            * Quaternion::from_angle_x(Deg(-camera_elevation)))
+            .rotate_point(Point3::new(0.0, -camera_distance, 0.0));
 
         let modelview: Matrix4<f32> = Matrix4::look_at(
             camera_pos,
             Point3::new(0.0, 0.0, 0.0),
             Vector3::new(0.0, 0.0, 1.0),
-        );
+        ) * Matrix4::from_translation(centre_offset);
+
         gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
             modelview.as_ptr() as *const GLfloat);
     };
@@ -212,30 +211,30 @@ fn main() {
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
         }
 
-        let tile_offsets = make_map_offsets(&MAP, 0.5) as Box<[GLfloat]>;
+        let tile_offsets = make_map_offsets(&MAP);
 
         let tile_mesh: &[GLfloat] = &[
-            -0.25, -0.25, 0.0, 0.0, 1.0,
-            0.25, -0.25, 0.0, 1.0, 1.0,
-            -0.25, 0.25, 0.0, 0.0, 0.5,
-            0.25, 0.25, 0.0, 1.0, 0.5,
-            -0.25, 0.25, -0.5, 0.0, 0.0,
-            0.25, 0.25, -0.5, 1.0, 0.0,
+            -0.5, -0.5, 0.0, 0.0, 1.0,
+            0.5, -0.5, 0.0, 1.0, 1.0,
+            -0.5, 0.5, 0.0, 0.0, 0.5,
+            0.5, 0.5, 0.0, 1.0, 0.5,
+            -0.5, 0.5, -1.0, 0.0, 0.0,
+            0.5, 0.5, -1.0, 1.0, 0.0,
 
-            0.25, 0.25, 0.0, 0.0, 0.5,
-            0.25, 0.25, -0.5, 0.0, 0.0,
-            0.25, -0.25, 0.0, 1.0, 0.5,
-            0.25, -0.25, -0.5, 1.0, 0.0,
+            0.5, 0.5, 0.0, 0.0, 0.5,
+            0.5, 0.5, -1.0, 0.0, 0.0,
+            0.5, -0.5, 0.0, 1.0, 0.5,
+            0.5, -0.5, -1.0, 1.0, 0.0,
 
-            0.25, -0.25, 0.0, 0.0, 0.5,
-            0.25, -0.25, -0.5, 0.0, 0.0,
-            -0.25, -0.25, 0.0, 1.0, 0.5,
-            -0.25, -0.25, -0.5, 1.0, 0.0,
+            0.5, -0.5, 0.0, 0.0, 0.5,
+            0.5, -0.5, -1.0, 0.0, 0.0,
+            -0.5, -0.5, 0.0, 1.0, 0.5,
+            -0.5, -0.5, -1.0, 1.0, 0.0,
 
-            -0.25, -0.25, 0.0, 0.0, 0.5,
-            -0.25, -0.25, -0.5, 0.0, 0.0,
-            -0.25, 0.25, 0.0, 1.0, 0.5,
-            -0.25, 0.25, -0.5, 1.0, 0.0,
+            -0.5, -0.5, 0.0, 0.0, 0.5,
+            -0.5, -0.5, -1.0, 0.0, 0.0,
+            -0.5, 0.5, 0.0, 1.0, 0.5,
+            -0.5, 0.5, -1.0, 1.0, 0.0,
         ];
 
         let vao = gen_object(gl::GenVertexArrays);
@@ -276,7 +275,7 @@ fn main() {
             gl::BindBuffer(gl::ARRAY_BUFFER, offset_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (size_of::<GLfloat>() * tile_offsets.len()) as GLsizeiptr,
+                (size_of::<Vector2<GLfloat>>() * tile_offsets.len()) as GLsizeiptr,
                 tile_offsets.as_ptr() as *const GLvoid,
                 gl::STATIC_DRAW
             );
@@ -294,7 +293,7 @@ fn main() {
             }
         }
 
-        (0, tile_mesh.len() / 5, vao, tile_offsets.len() / 2)
+        (0, tile_mesh.len() / 5, vao, tile_offsets.len())
     };
     let draw_stage = || unsafe {
         gl::UseProgram(world_shader);
@@ -328,10 +327,10 @@ fn main() {
         gl::BindVertexArray(vao);
         {
             let sprite_quad: [GLfloat; 20] = [
-                0.25, 0.0, 0.0, 1.0, 0.0,
-                0.25, 0.0, 1.5, 1.0, 1.0,
-                -0.25, 0.0, 1.5, 0.0, 1.0,
-                -0.25, 0.0, 0.0, 0.0, 0.0,
+                0.5, 0.0, 0.0, 1.0, 0.0,
+                0.5, 0.0, 2.0, 1.0, 1.0,
+                -0.5, 0.0, 2.0, 0.0, 1.0,
+                -0.5, 0.0, 0.0, 0.0, 0.0,
             ];
 
             let quad_vbo = gen_object(gl::GenBuffers);
@@ -461,10 +460,10 @@ fn main() {
                     virtual_keycode: Some(keycode),
                 .. }) => {
                     match keycode {
-                        VirtualKeyCode::W => player_pos[1] -= 0.5,
-                        VirtualKeyCode::A => player_pos[0] += 0.5,
-                        VirtualKeyCode::S => player_pos[1] += 0.5,
-                        VirtualKeyCode::D => player_pos[0] -= 0.5,
+                        VirtualKeyCode::W => player_pos[1] += 1.0,
+                        VirtualKeyCode::A => player_pos[0] -= 1.0,
+                        VirtualKeyCode::S => player_pos[1] -= 1.0,
+                        VirtualKeyCode::D => player_pos[0] += 1.0,
                         VirtualKeyCode::Q => camera_azimuth -= 5.0,
                         VirtualKeyCode::E => camera_azimuth += 5.0,
                         VirtualKeyCode::Escape => exit = true,
@@ -479,13 +478,12 @@ fn main() {
     }
 }
 
-fn make_map_offsets(map: &TileMap<u8>, tile_space: f32) -> Box<[f32]> {
+fn make_map_offsets(map: &TileMap<u8>) -> Box<[Vector2<GLfloat>]> {
     let mut offsets = Vec::new();
     for y in 0..(map.height) {
         for x in 0..(map.width) {
             if map[(x, y)] != 0 {
-                offsets.push(tile_space * (x as f32 - (map.width - 1) as f32 / 2.0));
-                offsets.push(tile_space * (y as f32 - (map.height - 1) as f32 / 2.0));
+                offsets.push(Vector2::new(x as f32, y as f32));
             }
         }
     }
