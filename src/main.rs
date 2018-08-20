@@ -1,10 +1,17 @@
+extern crate niwa_rs;
+use niwa_rs::tilemap::*;
+
 #[macro_use]
 extern crate lazy_static;
 
 extern crate gl;
+use gl::types::*;
+
 extern crate glutin;
+use glutin::GlContext;
 
 extern crate cgmath;
+use cgmath::*;
 
 extern crate image;
 
@@ -17,13 +24,6 @@ use std::mem::size_of;
 use std::ptr;
 use std::ffi::CString;
 
-use std::ops::Index;
-
-use glutin::GlContext;
-use gl::types::*;
-
-use cgmath::*;
-
 lazy_static! {
     static ref MAP: TileMap<u8> = TileMap {
         width: 5, height: 4,
@@ -34,22 +34,6 @@ lazy_static! {
             1, 1, 1, 0, 0,
         ]),
     };
-}
-
-struct TileMap<T> {
-    pub data: Box<[T]>,
-    pub width: u8,
-    pub height: u8,
-}
-
-impl<T> Index<(u8, u8)> for TileMap<T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: (u8, u8)) -> &Self::Output {
-        let index = (self.height - index.1 - 1) * self.width + index.0;
-        &self.data[index as usize]
-    }
 }
 
 fn main() {
