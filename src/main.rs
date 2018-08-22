@@ -36,12 +36,15 @@ lazy_static! {
     };
 }
 
+const WIDTH: u32 = 1280;
+const HEIGHT: u32 = 720;
+
 fn main() {
     // set up gl context/window
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new()
         .with_title("NIWA")
-        .with_dimensions(1280, 720)
+        .with_dimensions(WIDTH, HEIGHT)
         .with_resizable(false);
     let context = glutin::ContextBuilder::new();
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
@@ -51,11 +54,64 @@ fn main() {
     // load fn ptrs into gl from context
     gl::load_with(|addr| gl_window.get_proc_address(addr) as *const _);
 
+    #[repr(C)]
+    struct Mvp {
+        modelview: Matrix4<GLfloat>,
+        projection: Matrix4<GLfloat>,
+    };
+
+    let (mut mvp, mvp_ubo, mvp_binding_index) = unsafe {
+        let mut mvp = Mvp {
+            modelview: Matrix4::identity(),
+            projection: perspective(Deg(60.0), WIDTH as f32 / HEIGHT as f32, 0.1, 100.0),
+        };
+
+        let mvp_ubo = gen_object(gl::GenBuffers);
+        gl::BindBuffer(gl::UNIFORM_BUFFER, mvp_ubo);
+        gl::BufferData(
+            gl::UNIFORM_BUFFER,
+            size_of::<Mvp>() as GLsizeiptr,
+            mvp.modelview.as_ptr() as *const GLvoid,
+            gl::DYNAMIC_DRAW,
+        );
+
+        let mvp_binding_index: GLuint = 1;
+        gl::BindBufferBase(gl::UNIFORM_BUFFER, mvp_binding_index, mvp_ubo);
+
+        (mvp, mvp_ubo, mvp_binding_index)
+    };
+
+    let mut camera_azimuth: f32 = -45.0;
+    let mut camera_elevation: f32 = 30.0;
+    let mut camera_distance: f32 = 10.0;
+    let centre_offset = -Vector3::new(MAP.width as f32 - 1.0, MAP.height as f32 - 1.0, 0.0) / 2.0;
+
+    let mut update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32| unsafe {
+        gl::BindBuffer(gl::UNIFORM_BUFFER, mvp_ubo);
+
+        let camera_pos = (Quaternion::from_angle_z(Deg(camera_azimuth))
+            * Quaternion::from_angle_x(Deg(-camera_elevation)))
+            .rotate_point(Point3::new(0.0, -camera_distance, 0.0));
+
+        mvp.modelview = Matrix4::look_at(
+            camera_pos,
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+        ) * Matrix4::from_translation(centre_offset);
+
+        gl::BufferSubData(
+            gl::UNIFORM_BUFFER,
+            0 as GLintptr,
+            size_of::<Matrix4<GLfloat>>() as GLsizeiptr,
+            mvp.modelview.as_ptr() as *const GLvoid,
+        );
+    };
+
     let (bg_shader, bg_vao) = unsafe {
         let vert = compile_shader(
-            File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
+            File::open("src/shader/sky.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
-            File::open("src/shader/background.frag").unwrap(), gl::FRAGMENT_SHADER);
+            File::open("src/shader/sky.frag").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
@@ -71,28 +127,11 @@ fn main() {
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform3f(uniform, 1f32, 0f32, 1f32);
         }
+        // bind the uniform block to mvp uniform buffer
         {
-            let name = CString::new("bg_resolution").unwrap();
-            let uniform = gl::GetUniformLocation(program, name.as_ptr());
-            gl::Uniform2ui(uniform, 1280, 720);
-        }
-        {
-            let projection_uniform = {
-                let name = CString::new("projection").unwrap();
-                gl::GetUniformLocation(program, name.as_ptr())
-            };
-            let modelview_uniform = {
-                let name = CString::new("modelview").unwrap();
-                gl::GetUniformLocation(program, name.as_ptr())
-            };
-
-            let projection: Matrix4<f32> = Matrix4::identity();
-            let modelview: Matrix4<f32> = Matrix4::identity();
-
-            gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
-                projection.as_ptr() as *const GLfloat);
-            gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
-                modelview.as_ptr() as *const GLfloat);
+            let name = CString::new("Mvp").unwrap();
+            let mvp_index = gl::GetUniformBlockIndex(program, name.as_ptr());
+            gl::UniformBlockBinding(program, mvp_index, mvp_binding_index);
         }
 
         let vao = gen_object(gl::GenVertexArrays);
@@ -110,7 +149,7 @@ fn main() {
             );
 
             {
-                let name = CString::new("position").unwrap();
+                let name = CString::new("screen_position").unwrap();
                 let position = gl::GetAttribLocation(program, name.as_ptr()) as GLuint;
                 gl::EnableVertexAttribArray(position);
                 gl::VertexAttribPointer(position, 2, gl::FLOAT, gl::FALSE, 0, ptr::null());
@@ -126,7 +165,7 @@ fn main() {
         gl::DrawArrays(gl::TRIANGLE_FAN, 0, 4);
     };
 
-    let (world_shader, modelview_uniform, sprite_uniform) = unsafe {
+    let (world_shader, sprite_uniform) = unsafe {
         let vert = compile_shader(
             File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
@@ -135,20 +174,11 @@ fn main() {
         let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
 
-        let projection_uniform = {
-            let name = CString::new("projection").unwrap();
-            gl::GetUniformLocation(program, name.as_ptr())
-        };
-
-        let modelview_uniform = {
-            let name = CString::new("modelview").unwrap();
-            gl::GetUniformLocation(program, name.as_ptr())
-        };
-
+        // bind the uniform block to mvp uniform buffer
         {
-            let projection: Matrix4<f32> = perspective(Deg(30.0), 1280.0 / 720.0, 0.1, 100.0);
-            gl::UniformMatrix4fv(projection_uniform, 1, gl::FALSE,
-                projection.as_ptr() as *const GLfloat);
+            let name = CString::new("Mvp").unwrap();
+            let mvp_index = gl::GetUniformBlockIndex(program, name.as_ptr());
+            gl::UniformBlockBinding(program, mvp_index, mvp_binding_index);
         }
 
         let sprite_uniform = {
@@ -156,29 +186,7 @@ fn main() {
             gl::GetUniformLocation(program, name.as_ptr())
         };
 
-        (program, modelview_uniform, sprite_uniform)
-    };
-
-    let mut camera_azimuth: f32 = -45.0;
-    let mut camera_elevation: f32 = 30.0;
-    let mut camera_distance: f32 = 10.0;
-    let centre_offset = -Vector3::new(MAP.width as f32 - 1.0, MAP.height as f32 - 1.0, 0.0) / 2.0;
-
-    let update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32| unsafe {
-        gl::UseProgram(world_shader);
-
-        let camera_pos = (Quaternion::from_angle_z(Deg(camera_azimuth))
-            * Quaternion::from_angle_x(Deg(-camera_elevation)))
-            .rotate_point(Point3::new(0.0, -camera_distance, 0.0));
-
-        let modelview: Matrix4<f32> = Matrix4::look_at(
-            camera_pos,
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        ) * Matrix4::from_translation(centre_offset);
-
-        gl::UniformMatrix4fv(modelview_uniform, 1, gl::FALSE,
-            modelview.as_ptr() as *const GLfloat);
+        (program, sprite_uniform)
     };
 
     let (tile_sprite, tile_mesh_len, stage_vao, stage_num_tiles) = unsafe {
@@ -387,15 +395,15 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let render = |
+    let mut render = |
         camera_distance: f32, camera_elevation: f32, camera_azimuth: f32,
         player_pos: &[GLfloat; 2]
     | unsafe {
+        update_camera(camera_distance, camera_elevation, camera_azimuth);
+
         gl::Clear(gl::DEPTH_BUFFER_BIT);   // background overwrites color buffer
         gl::Disable(gl::DEPTH_TEST);
         draw_background();
-
-        update_camera(camera_distance, camera_elevation, camera_azimuth);
 
         gl::Enable(gl::DEPTH_TEST); // enable depth test for rendering world
         draw_stage();

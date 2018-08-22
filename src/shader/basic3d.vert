@@ -1,7 +1,9 @@
 #version 330
 
-uniform mat4 projection;
-uniform mat4 modelview;
+layout(std140) uniform Mvp {
+    mat4 modelview;
+    mat4 projection;
+};
 
 in vec3 position;
 in vec3 offset;
