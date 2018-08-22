@@ -120,12 +120,22 @@ fn main() {
         {
             let name = CString::new("bg_color_top").unwrap();
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
+            gl::Uniform3f(uniform, 1f32, 1f32, 1f32);
+        }
+        {
+            let name = CString::new("bg_color_high").unwrap();
+            let uniform = gl::GetUniformLocation(program, name.as_ptr());
             gl::Uniform3f(uniform, 0f32, 1f32, 1f32);
+        }
+        {
+            let name = CString::new("bg_color_low").unwrap();
+            let uniform = gl::GetUniformLocation(program, name.as_ptr());
+            gl::Uniform3f(uniform, 1f32, 0f32, 1f32);
         }
         {
             let name = CString::new("bg_color_bot").unwrap();
             let uniform = gl::GetUniformLocation(program, name.as_ptr());
-            gl::Uniform3f(uniform, 1f32, 0f32, 1f32);
+            gl::Uniform3f(uniform, 0.7f32, 0f32, 0.7f32);
         }
         // bind the uniform block to mvp uniform buffer
         {
