@@ -109,9 +109,9 @@ fn main() {
 
     let (bg_shader, bg_vao) = unsafe {
         let vert = compile_shader(
-            File::open("src/shader/sky.vert").unwrap(), gl::VERTEX_SHADER);
+            File::open("src/shader/sky.vert.glsl").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
-            File::open("src/shader/sky.frag").unwrap(), gl::FRAGMENT_SHADER);
+            File::open("src/shader/sky.frag.glsl").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
@@ -177,9 +177,9 @@ fn main() {
 
     let (world_shader, sprite_uniform) = unsafe {
         let vert = compile_shader(
-            File::open("src/shader/basic3d.vert").unwrap(), gl::VERTEX_SHADER);
+            File::open("src/shader/basic3d.vert.glsl").unwrap(), gl::VERTEX_SHADER);
         let frag = compile_shader(
-            File::open("src/shader/sprite.frag").unwrap(), gl::FRAGMENT_SHADER);
+            File::open("src/shader/sprite.frag.glsl").unwrap(), gl::FRAGMENT_SHADER);
 
         let program = link_shaders(&[vert, frag]);
         gl::UseProgram(program);
