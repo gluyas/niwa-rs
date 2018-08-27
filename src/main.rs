@@ -39,6 +39,9 @@ lazy_static! {
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 
+const CLIP_NEAR: f32 = 0.1;
+const CLIP_FAR: f32 = 100.0;
+
 fn main() {
     // set up gl context/window
     let mut events_loop = glutin::EventsLoop::new();
@@ -63,7 +66,9 @@ fn main() {
     let (mut mvp, mvp_ubo, mvp_binding_index) = unsafe {
         let mut mvp = Mvp {
             modelview: Matrix4::identity(),
-            projection: perspective(Deg(60.0), WIDTH as f32 / HEIGHT as f32, 0.1, 100.0),
+            projection: perspective(
+                Deg(60.0), WIDTH as f32 / HEIGHT as f32, CLIP_NEAR, CLIP_FAR
+            ),
         };
 
         let mvp_ubo = gen_object(gl::GenBuffers);
@@ -86,7 +91,7 @@ fn main() {
     let mut camera_distance: f32 = 10.0;
     let centre_offset = -Vector3::new(MAP.width as f32 - 1.0, MAP.height as f32 - 1.0, 0.0) / 2.0;
 
-    let mut update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32| unsafe {
+    let update_camera = |camera_distance: f32, camera_elevation: f32, camera_azimuth: f32, mvp: &mut Mvp| unsafe {
         gl::BindBuffer(gl::UNIFORM_BUFFER, mvp_ubo);
 
         let camera_pos = (Quaternion::from_angle_z(Deg(camera_azimuth))
@@ -405,11 +410,11 @@ fn main() {
         gl::Disable(gl::BLEND);
     };
 
-    let mut render = |
-        camera_distance: f32, camera_elevation: f32, camera_azimuth: f32,
+    let render = |
+        camera_distance: f32, camera_elevation: f32, camera_azimuth: f32, mvp: &mut Mvp,
         player_pos: &[GLfloat; 2]
     | unsafe {
-        update_camera(camera_distance, camera_elevation, camera_azimuth);
+        update_camera(camera_distance, camera_elevation, camera_azimuth, mvp);
 
         gl::Clear(gl::DEPTH_BUFFER_BIT);   // background overwrites color buffer
         gl::Disable(gl::DEPTH_TEST);
@@ -421,10 +426,11 @@ fn main() {
 
         gl_window.swap_buffers().expect("buffer swap failed");
     };
-    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+    render(camera_distance, camera_elevation, camera_azimuth, &mut mvp, &player_pos);
 
-    let mut mouse_held = false;
-    let mut mouse_drag_origin = (0.0, 0.0);
+    let mut mouse_down = false;
+    let mut mouse_was_dragged = false;
+    let mut mouse_last_pos = (0.0, 0.0);
 
     let mut exit = false;
     while !exit {
@@ -438,21 +444,54 @@ fn main() {
                 } => {
                     camera_distance += -delta_y * 0.5;
                     if camera_distance < 0.0 { camera_distance = 0.0 };
-                    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+                    render(camera_distance, camera_elevation, camera_azimuth, &mut mvp, &player_pos);
                 },
                 WindowEvent::MouseInput { button: MouseButton::Left, state, .. } => match state {
-                    ElementState::Pressed => { mouse_held = true; },
-                    ElementState::Released => { mouse_held = false; },
+                    ElementState::Pressed => { mouse_down = true; },
+                    ElementState::Released => {
+                        if !mouse_was_dragged {
+                            let cursor_ndc = Vector2 {
+                                x: mouse_last_pos.0 / WIDTH as f32 - 0.5,
+                                y: -mouse_last_pos.1 / HEIGHT as f32 + 0.5,
+                            } * 2.0;
+                            
+                            let mvp_inverse = (mvp.projection * mvp.modelview)
+                                .inverse_transform()
+                                .expect("mvp inversion failed");
+    
+                            let ray_origin = mvp_inverse.transform_point(
+                                Point3::new(cursor_ndc.x, cursor_ndc.y, 0.0)
+                            );
+                            let ray_direction = (mvp_inverse.transform_point(
+                                Point3::new(cursor_ndc.x, cursor_ndc.y, 1.0)
+                            ) - ray_origin).normalize();
+
+                            if ray_direction.z.abs() >= 0.01          // avoid divide by zero
+                            && ray_origin.z * ray_direction.z < 0.0 { // discard rays going away from zero
+                                let intersect_0 = ray_origin + -ray_origin.z / ray_direction.z * ray_direction;
+                                player_pos[0] = intersect_0.x;
+                                player_pos[1] = intersect_0.y;
+                                
+                                render(camera_distance, camera_elevation, camera_azimuth, &mut mvp, &player_pos);
+                            }
+                        }
+                        mouse_was_dragged = false;
+                        mouse_down = false; 
+                    },
                 },
                 WindowEvent::CursorMoved { position, .. } => {
-                    if mouse_held {
-                        camera_azimuth += 0.3 * (mouse_drag_origin.0 - position.0) as f32;
-                        camera_elevation -= 0.3 * (mouse_drag_origin.1 - position.1) as f32;
+                    let position = (position.0 as f32, position.1 as f32);
+                    if mouse_down {
+                        mouse_was_dragged = true;
+                        
+                        camera_azimuth += 0.3 * (mouse_last_pos.0 - position.0);
+                        camera_elevation -= 0.3 * (mouse_last_pos.1 - position.1);
                         if      camera_elevation < -85.0 { camera_elevation = -85.0; }
                         else if camera_elevation >  85.0 { camera_elevation =  85.0; }
-                        render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+                        
+                        render(camera_distance, camera_elevation, camera_azimuth, &mut mvp, &player_pos);
                     }
-                    mouse_drag_origin = position;
+                    mouse_last_pos = position;
                 }
                 _ => (),
             },
@@ -471,7 +510,7 @@ fn main() {
                         VirtualKeyCode::Escape => exit = true,
                         _ => (),
                     }
-                    render(camera_distance, camera_elevation, camera_azimuth, &player_pos);
+                    render(camera_distance, camera_elevation, camera_azimuth, &mut mvp, &player_pos);
                 },
                 _ => (),
             },
